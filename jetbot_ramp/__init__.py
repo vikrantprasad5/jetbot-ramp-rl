@@ -50,3 +50,40 @@ gym.register(
         "default_agent": "rsl_rl",
     },
 )
+
+
+# ---------------------------------------------------------------------------
+# Generalization experiments: procedural tracks, LiDAR + camera, speed curriculum
+# ---------------------------------------------------------------------------
+_T = f"{__name__}.tracks_env:TracksEnv"
+_TC = f"{__name__}.tracks_env_cfg"
+_TA = f"{_AGENTS}.tracks_agents_cfg"
+_TRACK_AGENTS = {
+    "teacher_cfg_entry_point": f"{_TA}:TracksTeacherPPOCfg",
+    "lidar_cfg_entry_point": f"{_TA}:TracksLidarPPOCfg",
+    "fusion_cfg_entry_point": f"{_TA}:TracksFusionPPOCfg",
+    "distill_cfg_entry_point": f"{_TA}:TracksFusionDistillCfg",
+    "finetune_cfg_entry_point": f"{_TA}:TracksFusionFinetuneCfg",
+}
+for _id, _cfg, _agent in [
+    ("Isaac-JetbotTracks-Teacher", "TracksEnvCfg", "TracksTeacherPPOCfg"),
+    ("Isaac-JetbotTracks-Lidar", "TracksEnvCfg", "TracksLidarPPOCfg"),
+    ("Isaac-JetbotTracks-Fusion", "TracksCameraEnvCfg", "TracksFusionPPOCfg"),
+    ("Isaac-JetbotTracks-FusionDistill", "TracksCameraEnvCfg", "TracksFusionDistillCfg"),
+    ("Isaac-JetbotTracks-FusionFinetune", "TracksCameraEnvCfg", "TracksFusionFinetuneCfg"),
+    ("Isaac-JetbotTracks-Eval", "TracksEnvCfg_EVAL", "TracksTeacherPPOCfg"),
+    ("Isaac-JetbotTracks-Camera-Eval", "TracksCameraEnvCfg_EVAL", "TracksFusionPPOCfg"),
+    ("Isaac-JetbotTracks-Train-Show", "TracksEnvCfg", "TracksTeacherPPOCfg"),
+    ("Isaac-JetbotTracks-Camera-Train-Show", "TracksCameraEnvCfg", "TracksFusionPPOCfg"),
+]:
+    gym.register(
+        id=_id,
+        entry_point=_T,
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{_TC}:{_cfg}",
+            "rsl_rl_cfg_entry_point": f"{_TA}:{_agent}",
+            "default_agent": "rsl_rl",
+            **_TRACK_AGENTS,
+        },
+    )
