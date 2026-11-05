@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jetbot_ramp"
+version = "0.1.0"
+description = "Isaac Lab 3.0 task: Jetbot on an elevated S-ramp (teacher PPO + camera student distillation)"
+requires-python = ">=3.11"
+dependencies = []  # uses the Isaac Sim / Isaac Lab Python environment as-is
+
+# Isaac Lab's train/play CLI imports every module registered in this group before looking up task IDs.
+[project.entry-points."isaaclab.tasks"]
+jetbot_ramp = "jetbot_ramp"
+
+[tool.setuptools]
+packages = ["jetbot_ramp", "jetbot_ramp.agents"]

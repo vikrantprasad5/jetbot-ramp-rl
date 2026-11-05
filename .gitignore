@@ -1,0 +1,6 @@
+__pycache__/
+*.egg-info/
+logs/
+smoke_out/
+videos/
+ramp_preview.png
