@@ -72,7 +72,7 @@ with launch_simulation(env_cfg, args_cli), contextlib.ExitStack() as cleanup:
     obs, _ = env.reset()
     print("[tsmoke] obs groups:", {k: tuple(v.shape) for k, v in obs.items()})
     print("[tsmoke] tracks:", [s.name for s in u.library.shapes])
-    lidar_w = viz.LidarPlotWriter(os.path.join(raw, f"{tag}_lidar.mp4")) if args_cli.record and u._lidar is not None else None
+    lidar_w = viz.LidarPlotWriter(os.path.join(raw, f"{tag}_lidar.mp4")) if args_cli.record and u._lidar else None
     WB, WR = 0.1125, 0.03
     n_fin = n_fall = 0
     lap_times = []
@@ -92,11 +92,9 @@ with launch_simulation(env_cfg, args_cli), contextlib.ExitStack() as cleanup:
         if lidar_w is not None:
             lidar_w.add(*viz.lidar_sample(u, 0))
         if step == 60:
-            for g in ("lidar", "cliff"):
-                if g in obs:
-                    x = obs[g][0]
-                    print(f"[tsmoke] {g}[0] min/mean/max = {x.min():.3f}/{x.mean():.3f}/{x.max():.3f} "
-                          f"(x{3.0 if g == 'lidar' else 1.0} m); centre={x[len(x) // 2]:.3f}")
+            print(f"[tsmoke] lidar[0] ranges m: centre={float(u.lidar_range[0, 30]):.3f} min={float(u.lidar_range[0].min()):.3f} "
+                  f"kinds ramp/floor/none={[(u.lidar_kind[0] == k).sum().item() for k in (1, 0, -1)]}")
+            print(f"[tsmoke] cliff[0] ranges m: {[round(float(x), 3) for x in u.cliff_range[0]]} kinds={u.cliff_kind[0].tolist()}")
         if step % 60 == 0:
             sp = u.robot.data.root_lin_vel_b.torch[:, 0]
             print(f"[tsmoke] t={step / 30:4.1f}s fwd speed mean={sp.mean():.2f} max={sp.max():.2f} m/s "

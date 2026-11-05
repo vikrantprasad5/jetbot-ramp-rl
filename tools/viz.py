@@ -76,33 +76,22 @@ class LidarPlotWriter:
 
 def lidar_sample(env, idx: int = 0):
     """Body-frame LiDAR / cliff hit points of env ``idx`` (numpy), for LidarPlotWriter.add."""
-    import torch
-
     u = env
+    q, pos = u._sensor_pose()
     yaw = float(u.yaw[idx])
-    base = u.robot.data.root_pos_w.torch[idx]
     c, s = np.cos(yaw), np.sin(yaw)
-    top = u.scene.env_origins[idx, 2] + u.cfg.library.top_z
+    base = pos[idx].cpu().numpy()
 
-    def body(sensor, max_range):
-        hits = sensor.data.ray_hits_w.torch[idx]
-        origin = sensor.data.pos_w.torch[idx]
-        finite = torch.isfinite(hits).all(-1)
-        d = (hits - origin).norm(dim=-1)
-        valid = finite & (d < max_range * 0.999)
-        h = torch.where(valid[:, None], hits, origin.expand_as(hits))  # misses are not drawn
-        rel = (h - base).cpu().numpy()
+    def body(hits, kind):
+        rel = hits[idx].cpu().numpy() - base
         xb = c * rel[:, 0] + s * rel[:, 1]
         yb = -s * rel[:, 0] + c * rel[:, 1]
-        on_ramp = (torch.abs(hits[:, 2] - top) < 0.05).cpu().numpy()
-        return np.stack([xb, yb], -1), on_ramp, valid.cpu().numpy()
+        k = kind[idx].cpu().numpy()
+        return np.stack([xb, yb], -1), k == 1, k >= 0
 
-    lb, lr, lv = body(u._lidar, 3.0)
-    cb = cok = None
-    if u._cliff is not None:
-        cb, cok, cv = body(u._cliff, 1.0)
-        cok = cok & cv
-    return lb, lr, lv, cb, cok
+    lb, lr, lv = body(u.lidar_hits, u.lidar_kind)
+    cb, cr, cv = body(u.cliff_hits, u.cliff_kind)
+    return lb, lr, lv, cb, cr & cv
 
 
 def compose(viewer: str, out: str, cam: str | None = None, lidar: str | None = None, caption: str = "",
@@ -113,25 +102,25 @@ def compose(viewer: str, out: str, cam: str | None = None, lidar: str | None = N
     n = 1
     if cam:
         inputs += ["-i", cam]
-        chains.append(f"[{n}:v]scale=480:360:flags=bicubic,pad=486:366:3:3:color=white[cam]")
-        chains.append(f"[{last}][cam]overlay=W-w-9:9:shortest=1,drawtext=fontfile={FONT}:text='robot camera':x=W-480:y=340:"
-                      f"fontsize=18:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=4[v{n}]")
+        chains.append(f"[{n}:v]scale=340:255:flags=bicubic,pad=344:259:2:2:color=white[cam]")
+        chains.append(f"[{last}][cam]overlay=W-w:0:shortest=1,drawtext=fontfile={FONT}:text='robot camera':x=w-336:y=232:"
+                      f"fontsize=15:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=3[v{n}]")
         last = f"v{n}"
         n += 1
     if lidar:
         inputs += ["-i", lidar]
-        chains.append(f"[{n}:v]scale=280:280:flags=neighbor,pad=286:286:3:3:color=white[li]")
-        y = "H-h-60"
-        chains.append(f"[{last}][li]overlay=W-w-9:{y}:shortest=1,drawtext=fontfile={FONT}:text='LiDAR top view (grid 10 cm)':x=w-283:"
-                      f"y=h-340:fontsize=16:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=4[v{n}]")
+        y0 = 263 if cam else 0
+        chains.append(f"[{n}:v]scale=240:240:flags=neighbor,pad=244:244:2:2:color=white[li]")
+        chains.append(f"[{last}][li]overlay=W-w:{y0}:shortest=1,drawtext=fontfile={FONT}:text='LiDAR top view':x=w-238:"
+                      f"y={y0 + 4}:fontsize=14:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=3[v{n}]")
         last = f"v{n}"
         n += 1
     tail = []
     if caption:
-        tail.append(f"drawtext=fontfile={FONT}:text='{caption}':x=16:y=h-40:fontsize=24:fontcolor=white:box=1:"
+        tail.append(f"drawtext=fontfile={FONT}:expansion=none:text='{caption}':x=16:y=h-40:fontsize=24:fontcolor=white:box=1:"
                     f"boxcolor=black@0.55:boxborderw=6")
     if stats_text:
-        tail.append(f"drawtext=fontfile={FONT}:text='{stats_text}':x=16:y=16:fontsize=22:fontcolor=white:box=1:"
+        tail.append(f"drawtext=fontfile={FONT}:expansion=none:text='{stats_text}':x=16:y=16:fontsize=22:fontcolor=white:box=1:"
                     f"boxcolor=black@0.55:boxborderw=6")
     filt = ";".join(chains)
     if tail:

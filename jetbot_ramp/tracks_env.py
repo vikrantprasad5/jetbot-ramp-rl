@@ -10,9 +10,9 @@ import torch
 import torch.nn.functional as F
 
 from isaaclab.envs import DirectRLEnv
-from isaaclab.utils.math import wrap_to_pi
+from isaaclab.utils.math import quat_apply, wrap_to_pi
 
-from .tracks import LibraryTensors, build_library, write_library_usd
+from .tracks import LibraryTensors, build_library, rasterize_library, write_library_usd
 
 if TYPE_CHECKING:
     from .tracks_env_cfg import TracksEnvCfg
@@ -30,10 +30,6 @@ class TracksEnv(DirectRLEnv):
         if cfg.observation_space != expected:
             raise ValueError(f"observation_space must be {expected}")
         cfg.state_space = expected
-        if not cfg.use_lidar:
-            cfg.scene.lidar = None
-        if not cfg.use_cliff:
-            cfg.scene.cliff = None
         super().__init__(cfg, render_mode, **kwargs)
 
         self.robot = self.scene["robot"]
@@ -71,8 +67,22 @@ class TracksEnv(DirectRLEnv):
         self.finish_time = torch.full((E,), float("nan"), device=dev)
         self.best_progress = z(E)
 
-        self._lidar = self.scene["lidar"] if self.cfg.use_lidar else None
-        self._cliff = self.scene["cliff"] if self.cfg.use_cliff else None
+        # analytic range sensors
+        grid, origin, res = rasterize_library(self.library)
+        self._grid = torch.tensor(grid, device=dev)
+        self._grid_origin = torch.tensor(origin, device=dev)
+        self._grid_res = res
+        self._lidar_dirs, self._lidar_org = self._fan(self.cfg.lidar_pos, self.cfg.lidar_pitch_deg,
+                                                      torch.arange(self.cfg.lidar_fov_deg[0], self.cfg.lidar_fov_deg[1] + 1e-6, self.cfg.lidar_res_deg))
+        self._cliff_dirs, self._cliff_org = self._fan(self.cfg.cliff_pos, self.cfg.cliff_pitch_deg, torch.tensor(self.cfg.cliff_yaws_deg))
+        self.lidar_range = torch.full((E, self._lidar_dirs.shape[0]), self.cfg.lidar_max_range, device=dev)
+        self.lidar_kind = torch.zeros(E, self._lidar_dirs.shape[0], dtype=torch.long, device=dev)  # 1 ramp, 0 floor, -1 miss
+        self.lidar_hits = torch.zeros(E, self._lidar_dirs.shape[0], 3, device=dev)  # env-local
+        self.cliff_range = torch.full((E, 3), self.cfg.cliff_max_range, device=dev)
+        self.cliff_kind = torch.zeros(E, 3, dtype=torch.long, device=dev)
+        self.cliff_hits = torch.zeros(E, 3, 3, device=dev)
+        self._lidar = self.cfg.use_lidar
+        self._cliff = self.cfg.use_cliff
         self._camera = self.scene["front_cam"] if self.cfg.use_camera else None
         self._frames = None
         self._aug_gain = torch.ones(E, 1, 1, 1, device=dev)
@@ -215,7 +225,9 @@ class TracksEnv(DirectRLEnv):
         super()._reset_idx(env_ids)
         n = len(env_ids)
 
-        if self.cfg.fixed_track >= 0:
+        if self.cfg.track_per_env:
+            self.track_id[env_ids] = env_ids % self.lib.num_tracks
+        elif self.cfg.fixed_track >= 0:
             self.track_id[env_ids] = self.cfg.fixed_track
         else:
             self.track_id[env_ids] = torch.randint(0, self.lib.num_tracks, (n,), device=dev)
@@ -268,12 +280,71 @@ class TracksEnv(DirectRLEnv):
             self._aug_contrast[env_ids] = u(*self.cfg.aug_contrast, n).view(n, 1, 1, 1)
             self._aug_shift[env_ids] = u(-self.cfg.aug_color_shift, self.cfg.aug_color_shift, 3 * n).view(n, 1, 1, 3)
 
+    # ------------------------------------------------------------------ analytic range sensors
+    def _fan(self, pos, pitch_deg, yaws_deg):
+        """Ray directions (body frame) of a planar fan pitched down by pitch_deg; returns (dirs[R,3], origin[3])."""
+        a = torch.deg2rad(yaws_deg.float())
+        th = torch.deg2rad(torch.tensor(float(pitch_deg)))
+        d = torch.stack([torch.cos(a) * torch.cos(th), torch.sin(a), -torch.cos(a) * torch.sin(th)], -1)
+        return d.to(self.device), torch.tensor(pos, dtype=torch.float32, device=self.device)
+
+    def _cast(self, dirs_b, org_b, max_range):
+        """Cast body-frame rays from every robot against the ramp tops (occupancy map) and the floor.
+
+        Exact for ramp top surfaces and the floor; ignores the 3 cm ramp side faces and the thin pillars.
+        Returns range [E,R], kind [E,R] (1 ramp, 0 floor, -1 none within range), hit points [E,R,3] env-local.
+        """
+        q, pos = self._sensor_pose()
+        E, R = q.shape[0], dirs_b.shape[0]
+        o = pos + quat_apply(q, org_b.expand(E, 3))  # [E,3] env-local
+        d = quat_apply(q[:, None, :].expand(E, R, 4).reshape(-1, 4), dirs_b.expand(E, R, 3).reshape(-1, 3)).view(E, R, 3)
+        oz = o[:, None, 2]
+        dz = d[..., 2]
+        down = dz < -1e-6
+        top = self.cfg.library.top_z
+        t_top = torch.where(down & (oz > top), (oz - top) / (-dz).clamp(min=1e-6), torch.full_like(dz, 1e9))
+        p_top = o[:, None, :] + t_top[..., None] * d
+        j = ((p_top[..., 0] - self._grid_origin[0]) / self._grid_res).floor().long()
+        i = ((p_top[..., 1] - self._grid_origin[1]) / self._grid_res).floor().long()
+        H, W = self._grid.shape
+        inside = (i >= 0) & (i < H) & (j >= 0) & (j < W) & (t_top < 1e8)
+        on_ramp = torch.zeros_like(inside)
+        on_ramp[inside] = self._grid[i[inside], j[inside]]
+        hit_ramp = on_ramp & (t_top <= max_range)
+        t_floor = torch.where(down, oz / (-dz).clamp(min=1e-6), torch.full_like(dz, 1e9))
+        hit_floor = ~hit_ramp & (t_floor <= max_range)
+        t = torch.where(hit_ramp, t_top, torch.where(hit_floor, t_floor, torch.full_like(dz, max_range)))
+        kind = torch.where(hit_ramp, 1, torch.where(hit_floor, 0, -1))
+        return t, kind, o[:, None, :] + t[..., None] * d
+
+    def _sensor_pose(self):
+        """Robot root pose (env-local position, xyzw quaternion); respawned robots use their new spawn pose
+        because the sim buffers only refresh on the next physics step."""
+        q = self.robot.data.root_quat_w.torch.clone()
+        pos = self.robot.data.root_pos_w.torch - self.scene.env_origins
+        m = self._just_reset
+        if m.any():
+            pos = pos.clone()
+            pos[m, :2] = self.pos_xy[m]
+            pos[m, 2] = self.cfg.library.top_z + self.cfg.spawn_height
+            y = self.yaw[m]
+            q[m] = torch.stack([torch.zeros_like(y), torch.zeros_like(y), torch.sin(y / 2), torch.cos(y / 2)], -1)
+        return q, pos
+
+    def _update_range_sensors(self):
+        if self._lidar and (self.common_step_counter % max(1, self.cfg.lidar_period_steps) == 0 or self._just_reset.any()):
+            r, k, h = self._cast(self._lidar_dirs, self._lidar_org, self.cfg.lidar_max_range)
+            if self.common_step_counter % max(1, self.cfg.lidar_period_steps) == 0:
+                self.lidar_range[:], self.lidar_kind[:], self.lidar_hits[:] = r, k, h
+            else:  # only refresh robots that just respawned
+                m = self._just_reset
+                self.lidar_range[m], self.lidar_kind[m], self.lidar_hits[m] = r[m], k[m], h[m]
+        if self._cliff:
+            self.cliff_range[:], self.cliff_kind[:], self.cliff_hits[:] = self._cast(self._cliff_dirs, self._cliff_org, self.cfg.cliff_max_range)
+
     # ------------------------------------------------------------------ observations
-    def _ranges(self, sensor, max_range: float, noise: float = 0.0, dropout: float = 0.0) -> torch.Tensor:
-        hits = sensor.data.ray_hits_w.torch
-        origin = sensor.data.pos_w.torch[:, None, :]
-        d = (hits - origin).norm(dim=-1)
-        d = torch.where(torch.isfinite(d), d, torch.full_like(d, max_range)).clamp(max=max_range)
+    def _ranges(self, rng: torch.Tensor, max_range: float, noise: float = 0.0, dropout: float = 0.0) -> torch.Tensor:
+        d = rng
         if noise > 0:
             d = (d + noise * torch.randn_like(d)).clamp(0.0, max_range)
         x = d / max_range
@@ -324,11 +395,13 @@ class TracksEnv(DirectRLEnv):
         fresh = (~self._just_reset).float()[:, None]
         wv = self.robot.data.joint_vel.torch[:, self._wheel_ids] / self._max_wheel * fresh
         obs["proprio"] = torch.cat([self.actions, wv, (self.speed_scale / max(self.cfg.speed_levels))[:, None]], -1)
-        if self._lidar is not None:
-            x = self._ranges(self._lidar, 3.0, self.cfg.lidar_noise_std, self.cfg.lidar_ray_dropout if self.cfg.domain_randomization else 0.0)
+        self._update_range_sensors()
+        if self._lidar:
+            x = self._ranges(self.lidar_range, self.cfg.lidar_max_range, self.cfg.lidar_noise_std,
+                             self.cfg.lidar_ray_dropout if self.cfg.domain_randomization else 0.0)
             obs["lidar"] = x * (~self._lidar_drop).float()[:, None]
-        if self._cliff is not None:
-            obs["cliff"] = self._ranges(self._cliff, 1.0, self.cfg.lidar_noise_std)
+        if self._cliff:
+            obs["cliff"] = self._ranges(self.cliff_range, self.cfg.cliff_max_range, self.cfg.lidar_noise_std)
         if self._camera is not None:
             obs["camera"] = self._camera_obs()
         return obs

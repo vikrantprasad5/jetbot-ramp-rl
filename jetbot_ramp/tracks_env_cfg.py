@@ -25,7 +25,6 @@ from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import CameraCfg
-from isaaclab.sensors.ray_caster import MultiMeshRayCasterCfg, patterns
 from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass, replace
@@ -48,23 +47,6 @@ def _pitch_down(deg: float) -> tuple[float, float, float, float]:
     return (0.0, math.sin(h), 0.0, math.cos(h))
 
 
-# Ray-cast sensors need an existing non-physics Xform to ride on (Isaac Lab 3.0 no longer spawns sensor frames).
-# The Jetbot USD has one: chassis/rgb_camera at (0.0465, 0, 0.0672) in the chassis frame, pitched 20 deg down.
-_MOUNT = "{ENV_REGEX_NS}/Robot/chassis/rgb_camera"
-_MOUNT_POS = (0.0465, 0.0, 0.0672)
-_MOUNT_PITCH = 20.0
-
-
-def _mount_offset(pos_chassis, pitch_down_deg):
-    """Offset (pos, rot) relative to the rgb_camera mount for a sensor at pos_chassis pitched pitch_down_deg."""
-    t = math.radians(_MOUNT_PITCH)
-    d = [pos_chassis[i] - _MOUNT_POS[i] for i in range(3)]
-    # inverse of a rotation about +y by t: [[c, 0, -s], [0, 1, 0], [s, 0, c]]
-    c, s = math.cos(t), math.sin(t)
-    local = (c * d[0] - s * d[2], d[1], s * d[0] + c * d[2])
-    return local, _pitch_down(pitch_down_deg - _MOUNT_PITCH)
-
-
 def _spacing(spec: LibrarySpec) -> float:
     return max(build_library(spec).footprint()) + 2.0
 
@@ -84,14 +66,6 @@ JETBOT_FAST_CFG = replace(
     },
 )
 
-_RAMP_TARGET = MultiMeshRayCasterCfg.RaycastTargetCfg(
-    prim_expr="{ENV_REGEX_NS}/Ramp", is_shared=True, merge_prim_meshes=True, track_mesh_transforms=False
-)
-_GROUND_TARGET = MultiMeshRayCasterCfg.RaycastTargetCfg(
-    prim_expr="/World/ground", is_shared=True, merge_prim_meshes=True, track_mesh_transforms=False
-)
-
-
 @configclass
 class TracksSceneCfg(InteractiveSceneCfg):
     ground = TerrainImporterCfg(
@@ -100,31 +74,6 @@ class TracksSceneCfg(InteractiveSceneCfg):
     ramp = AssetBaseCfg(prim_path="{ENV_REGEX_NS}/Ramp", spawn=sim_utils.UsdFileCfg(usd_path=""))
     robot: ArticulationCfg = replace(JETBOT_FAST_CFG, prim_path="{ENV_REGEX_NS}/Robot")
     light = AssetBaseCfg(prim_path="/World/Light", spawn=sim_utils.DomeLightCfg(intensity=1000.0, color=(0.9, 0.9, 0.9)))
-    # tilted 2D LiDAR (LD19 class): 120 deg front sector, 2 deg resolution, pitched 35 deg down, 10 Hz
-    lidar = MultiMeshRayCasterCfg(
-        prim_path=_MOUNT,
-        spawn=None,
-        mesh_prim_paths=[_RAMP_TARGET, _GROUND_TARGET],
-        offset=MultiMeshRayCasterCfg.OffsetCfg(*_mount_offset((0.05, 0.0, 0.09), 35.0)),
-        ray_alignment="base",
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=1, vertical_fov_range=(0.0, 0.0), horizontal_fov_range=(-60.0, 60.0), horizontal_res=2.0
-        ),
-        max_distance=3.0,
-        update_period=0.1,
-    )
-    # 3 ToF cliff sensors at the front, pointing forward-down (50 deg), yaw -25/0/+25 deg
-    cliff = MultiMeshRayCasterCfg(
-        prim_path=_MOUNT,
-        spawn=None,
-        mesh_prim_paths=[_RAMP_TARGET, _GROUND_TARGET],
-        offset=MultiMeshRayCasterCfg.OffsetCfg(*_mount_offset((0.07, 0.0, 0.03), 50.0)),
-        ray_alignment="base",
-        pattern_cfg=patterns.LidarPatternCfg(
-            channels=1, vertical_fov_range=(0.0, 0.0), horizontal_fov_range=(-25.0, 25.0), horizontal_res=25.0
-        ),
-        max_distance=1.0,
-    )
 
 
 @configclass
@@ -168,6 +117,7 @@ class TracksEnvCfg(DirectRLEnvCfg):
 
     # resets
     fixed_track = -1
+    track_per_env = False  # env i always drives track i % num_tracks (mosaic videos)
     start_s = 0.15
     random_start_prob = 0.3
     random_start_max_frac = 0.8
@@ -188,7 +138,17 @@ class TracksEnvCfg(DirectRLEnvCfg):
     rew_finish = 10.0
     rew_fast = 5.0  # extra finish bonus * (average speed / 0.36 m/s)
 
-    # sensors
+    # sensors (analytic ray casting against the ramp-top occupancy map and the floor; see TracksEnv._cast)
+    lidar_pos = (0.05, 0.0, 0.09)  # in the robot root frame [m]
+    lidar_pitch_deg = 35.0
+    lidar_fov_deg = (-60.0, 60.0)
+    lidar_res_deg = 2.0
+    lidar_max_range = 3.0
+    lidar_period_steps = 3  # 10 Hz at 30 Hz policy
+    cliff_pos = (0.07, 0.0, 0.03)
+    cliff_pitch_deg = 50.0
+    cliff_yaws_deg = (-25.0, 0.0, 25.0)
+    cliff_max_range = 1.0
     use_lidar = True
     use_cliff = True
     use_camera = False

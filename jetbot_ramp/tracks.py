@@ -399,6 +399,35 @@ class LibraryTensors:
         return torch.stack([c * rel[..., 0] + sn * rel[..., 1], -sn * rel[..., 0] + c * rel[..., 1]], -1)
 
 
+def rasterize_library(lib: Library, res: float = 0.01, pad: float = 1.0):
+    """Boolean top-view occupancy map of all ramp surfaces (env-local frame).
+
+    Returns (grid[H, W] bool, origin_xy (x0, y0) of cell [0, 0], res). Cell (i, j) covers
+    x in [x0 + j*res, ...), y in [y0 + i*res, ...).
+    """
+    lo = np.min([t.points.min(0) for t in lib.tracks], axis=0) - pad
+    hi = np.max([t.points.max(0) for t in lib.tracks], axis=0) + pad
+    W = int(np.ceil((hi[0] - lo[0]) / res)) + 1
+    H = int(np.ceil((hi[1] - lo[1]) / res)) + 1
+    grid = np.zeros((H, W), bool)
+    for t, sh in zip(lib.tracks, lib.shapes):
+        hw = sh.width / 2
+        # 4x denser centreline (linear interpolation) so the outside of tight curves has no gaps
+        f = np.linspace(0, len(t.s) - 1, 4 * len(t.s))
+        i0 = np.minimum(np.floor(f).astype(int), len(t.s) - 2)
+        w = (f - i0)[:, None]
+        pts = t.points[i0] * (1 - w) + t.points[i0 + 1] * w
+        dy = np.arctan2(np.sin(t.yaw[i0 + 1] - t.yaw[i0]), np.cos(t.yaw[i0 + 1] - t.yaw[i0]))
+        yaw = t.yaw[i0] + dy * w[:, 0]
+        nrm = np.stack([-np.sin(yaw), np.cos(yaw)], -1)
+        for off in np.arange(-hw, hw + 1e-9, res / 2):
+            p = pts + off * nrm
+            j = np.floor((p[:, 0] - lo[0]) / res).astype(int)
+            i = np.floor((p[:, 1] - lo[1]) / res).astype(int)
+            grid[i, j] = True
+    return grid, (float(lo[0]), float(lo[1])), res
+
+
 # train / test libraries
 TRAIN_LIBRARY = LibrarySpec(seed=1, num_random=12, named=[])
 TEST_LIBRARY = LibrarySpec(seed=1001, num_random=3, named=list(NAMED_TRACKS))
