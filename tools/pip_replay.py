@@ -127,8 +127,9 @@ def render(args):
     env_cfg, _ = cfg_for(task, "rsl_rl_cfg_entry_point", args)
     from isaaclab_visualizers.kit import KitVisualizerCfg
 
-    env_cfg.sim.visualizer_cfgs = [KitVisualizerCfg(headless=True, origin_type="world", eye=(-0.9, -1.3, 1.4),
-                                                    lookat=(0.0, 0.0, 0.3), window_width=1280, window_height=720)]
+    env_cfg.sim.visualizer_cfgs = [KitVisualizerCfg(headless=True, origin_type="asset", origin_track_path="robot",
+                                                    eye=(-0.9, -1.3, 1.1), lookat=(0.25, 0.0, 0.0),
+                                                    window_width=1280, window_height=720)]
     args.enable_cameras = True
     args.device = env_cfg.sim.device
     meta = json.load(open(os.path.join(args.work, "meta.json")))
@@ -150,9 +151,7 @@ def render(args):
                 u.robot.write_joint_position_to_sim_index(position=torch.tensor(jp, device=u.device), env_ids=ids)
                 u.scene.write_data_to_sim()
                 u.sim.forward()
-                c = p[0, :3].cpu().numpy()
-                viz_.set_camera_view((float(c[0]) - 0.9, float(c[1]) - 1.3, float(c[2]) + 1.1),
-                                     (float(c[0]) + 0.25, float(c[1]), float(c[2])))
+                u.scene.update(dt=u.physics_dt)  # refresh asset data so the follow camera tracks the replayed pose
                 f = viz_.render_rgb_array()
                 if f is None:
                     continue

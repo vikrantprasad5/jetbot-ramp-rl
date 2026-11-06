@@ -135,3 +135,46 @@ teacher, aim for success above 90%. The student should end up within about 10% o
 - Build the physical ramp in the same colours you train with, or widen the colour randomization.
 - Export the student to ONNX through Isaac Lab's export entrypoint (`isaaclab_rl.entrypoints.run_export_cli`)
   and run it on the Jetson with TensorRT at 30 Hz.
+
+
+## Branch `feat/lidar-camera-fusion`: generalization, LiDAR + camera, 3x speed (2026-11-06)
+
+Procedural tracks (12 train, 8 held-out test incl. triple S, long straight + S, tight S, narrow S), tilted 2D LiDAR
+(analytic ray casting on a 1 cm ramp-top map + floor), 3 forward-down cliff sensors, camera, speed curriculum
+1x -> 3x (36 rad/s, ~1 m/s), lap-time bonus. See `library_preview.png`.
+
+| Model | Training | Robots | Wall time |
+|---|---|---|---|
+| Teacher | PPO on privileged track info | 2048 | ~9 min (stopped at iter 780, converged) |
+| A | PPO from scratch: LiDAR + cliff + proprio | 2048 | ~45 min (3000 iters) |
+| B | PPO from scratch: camera + LiDAR + cliff + proprio | 192 | ~58 min (1500 iters) |
+| C | distill teacher -> same network as B (400 iters), then PPO fine-tune (500 iters) | 192 | ~17 + ~20 min |
+
+Held-out test tracks (8 tracks x 8 robots, mean action, `tools/evaluate.py`; "falls" includes a wheel crossing the
+edge margin):
+
+| Model | Speed | Sensors | Success | Falls | Mean lap (finished) | Tracks not 100% |
+|---|---|---|---|---|---|---|
+| Teacher | 1x | normal | 75% | 25% | 20.0 s | tight_s, narrow_s |
+| Teacher | 3x | normal | 88% | 12% | 6.2 s | narrow_s |
+| A | 1x | normal | 88% | 12% | 18.2 s | narrow_s |
+| A | 3x | normal | 100% | 0% | 6.1 s | - |
+| A | 3x | LiDAR OFF | 0% | 100% | - | s_original, triple_s, long_straight_s, tight_s, narrow_s, rand_1001_00, rand_1001_01, rand_1001_02 |
+| B | 1x | normal | 88% | 12% | 18.4 s | narrow_s |
+| B | 3x | normal | 98% | 2% | 6.2 s | narrow_s |
+| B | 3x | LiDAR OFF | 95% | 5% | 6.5 s | triple_s, long_straight_s |
+| B | 3x | camera OFF | 100% | 0% | 6.6 s | - |
+| C | 1x | normal | 100% | 0% | 17.8 s | - |
+| C | 3x | normal | 100% | 0% | 6.2 s | - |
+| C | 3x | LiDAR OFF | 91% | 9% | 6.2 s | narrow_s, rand_1001_02 |
+| C | 3x | camera OFF | 55% | 45% | 7.2 s | s_original, triple_s, long_straight_s, tight_s, narrow_s, rand_1001_01 |
+
+Takeaways: C is the best driver (100% at 1x and 3x); B is the most robust to a sensor failing (trained by RL with
+sensor dropout it uses both); C leans on its camera (55% with camera off); A (LiDAR only) is excellent at 3x and
+cheapest to train; the teacher generalizes worst (it relies on exact track coordinates, fails the narrow S).
+
+Videos (`videos/fusion/`): `*_generations_long.mp4` (swarm of 60 robots per checkpoint, dense around the learning
+jump), `teacher_test_mosaic.mp4`, `*_pip_*.mp4` (camera + LiDAR insets), `race_narrow_s_3x.mp4` (2x2 race).
+
+Tools: `swarm.py` / `pip_replay.py` drive without a viewer (an active viewer changes camera-sensor renders) and
+replay trajectories for the video; `progress_scan.py` picks generations; `evaluate.py`; `distill_to_ppo.py`.
