@@ -1,4 +1,70 @@
-# jetbot_ramp
+# Jetbot ramp RL: teaching a small robot to drive elevated ramps
+
+Reinforcement learning in **NVIDIA Isaac Lab 3.0 / Isaac Sim 6.2**: a Jetbot learns to drive along elevated ramps
+without falling off, first on one S-shaped ramp, then on randomly generated tracks it has never seen, at up to
+~1 m/s, using a camera, a tilted 2D LiDAR and cliff sensors. Everything was trained on one RTX 5070.
+
+| Teacher-distilled camera + LiDAR model on a never-seen track (3×) | 60 robots per checkpoint: watching a generation learn |
+|---|---|
+| ![model C](docs/media/model_C_triple_s.gif) | ![swarm](docs/media/swarm_generations.gif) |
+
+![inside the network](docs/media/inside_model_C.gif)
+
+*The trained network re-run on a real drive: inputs → hidden neurons (orange pushes up, blue down) → two wheel speeds.*
+
+## Downloads
+
+All videos (34), the slide deck (66 slides, every video embedded) and the trained models are attached to the
+**[v1.0 release](../../releases/tag/v1.0)**: they are too large for the repository itself.
+
+## Results in one table (8 never-seen test tracks × 8 robots)
+
+| Model | How it learns | Sensors | 1× | 3× (~1 m/s) |
+|---|---|---|---|---|
+| Teacher | PPO | exact track geometry (privileged) | 75% | 88% |
+| A | PPO from scratch | LiDAR + cliff + proprio | 88% | 100% |
+| B | PPO from scratch | camera + LiDAR | 88% | 98% |
+| **C** | **teacher → distillation → PPO fine-tune** | **camera + LiDAR** | **100%** | **100%** |
+
+On 8 deliberately hard *stress* tracks (133 m long, floor-coloured, rainbow-striped, hairpins, sharp corners,
+18 cm wide) the picture flips: the LiDAR-only model A finishes 98% of runs, camera-heavy C 59%. Length is no
+problem (C drove 133 m without falling); appearance changes are.
+
+![stress C vs A](docs/media/stress_C_vs_A.gif)
+
+## Quick start
+
+Requires Isaac Sim 6.2 and Isaac Lab 3.0 (Linux, NVIDIA GPU).
+
+```bash
+git clone <this repo> ~/jetbot_ramp && cd ~/jetbot_ramp
+./install.sh                     # pip install -e into Isaac Sim's python; tasks register via the isaaclab.tasks entry point
+# train (examples)
+./run.sh ~/IsaacLab/scripts/reinforcement_learning/train.py --task Isaac-JetbotTracks-Teacher --num_envs 2048
+./run.sh ~/IsaacLab/scripts/reinforcement_learning/train.py --task Isaac-JetbotTracks-Lidar --num_envs 2048
+# evaluate a checkpoint on the held-out tracks
+./run.sh tools/evaluate.py --task Isaac-JetbotTracks-Eval --agent lidar_cfg_entry_point --ckpt <model.pt> --speed 3 --out eval.json
+```
+
+`run.sh` strips conda from the environment and runs Isaac Sim's python. Offline tests (no simulator):
+`~/isaacsim/kit/python/bin/python3 tests/test_ramp.py` and `tests/test_tracks.py`.
+
+## Repository map
+
+```
+jetbot_ramp/        Isaac Lab task package: tracks, envs, agents (rsl_rl PPO / distillation configs)
+tools/              smoke tests, evaluation, swarm / tour / picture-in-picture video tools, network animation
+tests/              offline geometry tests
+deck/               slide-deck builder (pptxgenjs)
+docs/media/         README images and GIFs
+export/             phase-1 camera student exported to ONNX
+```
+
+---
+
+# Detailed notes
+
+## Phase 1: one S-ramp
 
 A Jetbot with a front camera learns to drive along an elevated S-shaped ramp in Isaac Lab 3.0 / Isaac Sim 6.2.
 It is rewarded for progress along the ramp and penalised for falling off.
@@ -11,7 +77,7 @@ There are two training stages:
    plus its last action. It learns to copy the teacher while driving itself (DAgger-style), so it
    also learns how to recover from its own mistakes. This camera-only policy is the one for the real Jetbot.
 
-![ramp layout](ramp_preview.svg)
+![ramp layout](docs/media/ramp_preview.png)
 
 Each env has two tracks: an S and a mirrored S. Every reset picks one of them, so the policy has to
 handle both turn orders (driving one S in reverse gives the same order, so it can't mirror itself).
