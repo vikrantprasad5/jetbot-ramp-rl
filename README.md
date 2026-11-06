@@ -178,3 +178,35 @@ jump), `teacher_test_mosaic.mp4`, `*_pip_*.mp4` (camera + LiDAR insets), `race_n
 
 Tools: `swarm.py` / `pip_replay.py` drive without a viewer (an active viewer changes camera-sensor renders) and
 replay trajectories for the video; `progress_scan.py` picks generations; `evaluate.py`; `distill_to_ppo.py`.
+
+
+## Stress test: 8 very difficult tracks (`STRESS_LIBRARY`, see `stress_preview.png`)
+
+58 m wiggle, 133 m serpentine, white (floor-coloured) S, rainbow-striped S, 0.3 m hairpins, 90° near-sharp zigzag,
+18 cm narrow S, 22 cm narrow chicane. Tasks `Isaac-JetbotTracks-Camera-Stress` / `Isaac-JetbotTracks-Stress`.
+8 robots per track, deterministic (`tools/evaluate.py`):
+
+| Track | C 1x | C 3x | B 3x | A 3x (LiDAR) |
+|---|---|---|---|---|
+| long_wiggle_60m | 8/8 | 8/8 | 8/8 | 8/8 |
+| serpentine_120m | 8/8 | 8/8 | 8/8 | 8/8 |
+| white_s | 0/8 | 1/8 | 0/8 | 8/8 |
+| rainbow_s | 0/8 | 0/8 | 5/8 | 8/8 |
+| hairpins_r03 | 8/8 | 6/8 | 7/8 | 8/8 |
+| sharp_zigzag | 2/8 | 3/8 | 1/8 | 8/8 |
+| narrow_18cm_s | 7/8 | 4/8 | 7/8 | 7/8 |
+| narrow_chicane | 8/8 | 8/8 | 8/8 | 8/8 |
+| **Overall** | **64%** | **59%** | **69%** | **98%** |
+
+- Length is no problem: C drove 133 m and 58 m without a fall at both speeds (policies are purely reactive).
+- Colour breaks the camera-heavy model: white and rainbow ramps 0-1/8 for C; A (colour-blind LiDAR) 8/8.
+- Sharp corners hurt camera models too; A clears them. On these tracks A (98%) beats C (59%).
+
+Videos: `videos/fusion/stress_tour_C_3x.mp4` (all 8 tracks, title cards + runs, `tools/track_tour.py`),
+`stress_C_vs_A.mp4` and `stress_*_{A,C}.mp4` (side-by-side failures).
+
+## Slide deck
+
+`deck/build_deck.js` builds `Jetbot_Ramp_RL_Deck.pptx` (60 slides, all 30 videos embedded, ~127 MB) and, with `LITE=1`,
+`Jetbot_Ramp_RL_Deck_lite.pptx` (480p videos, ~30 MB). Install once with `cd deck && npm install`, then
+`NODE_PATH=$PWD/node_modules APPLY_THEME=<pptx skill>/scripts/apply_theme.js node build_deck.js`.

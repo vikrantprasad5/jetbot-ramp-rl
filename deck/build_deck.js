@@ -204,7 +204,7 @@ function chartOpts(o) {
     ["2048", "robots trained in parallel on one RTX 5070", HEX.accent2],
     ["6", "trained policies: 2 on the S ramp, 4 on random tracks", HEX.accent3],
     ["~3.5 h", "total GPU training time across all runs", HEX.accent5],
-    ["22", "videos recorded, all embedded in this deck", HEX.accent4],
+    ["30", "videos recorded, all embedded in this deck", HEX.accent4],
   ];
   for (let i = 0; i < nums.length; i++) {
     const x = 0.7 + (i % 3) * 4.1, y = 1.55 + Math.floor(i / 3) * 2.55;
@@ -224,12 +224,13 @@ function chartOpts(o) {
     ["FaProjectDiagram", "4 · Generalizing", "Random tracks, LiDAR, 3× speed, models A/B/C"],
     ["FaUsers", "5 · Generations", "60-robot swarms showing learning step by step"],
     ["FaTrophy", "6 · Results", "Never-seen tracks, sensor failures, race"],
-    ["FaWrench", "7 · Failures & learnings", "What broke, how it was fixed, what we learned"],
+    ["FaBomb", "7 · Stress test", "8 very hard tracks: 133 m long, white, rainbow, sharp corners"],
+    ["FaWrench", "8 · Failures & learnings", "What broke, how it was fixed, what we learned"],
   ];
   for (let i = 0; i < ag.length; i++) {
     const col = i < 4 ? 0 : 1, row = i < 4 ? i : i - 4;
     const x = 0.7 + col * 6.2, y = 1.5 + row * 1.32;
-    await iconDot(s, ag[i][0], x, y + 0.05, 0.75, [HEX.accent1, HEX.accent6, HEX.accent2, HEX.accent3, HEX.accent2, HEX.accent1, HEX.accent4][i]);
+    await iconDot(s, ag[i][0], x, y + 0.05, 0.75, [HEX.accent1, HEX.accent6, HEX.accent2, HEX.accent3, HEX.accent2, HEX.accent1, HEX.accent4, HEX.accent5][i]);
     s.addText(ag[i][1], tb({ x: x + 1.0, y, w: 4.9, h: 0.45, fontSize: 19, bold: true, color: C.text1 }));
     s.addText(ag[i][2], tb({ x: x + 1.0, y: y + 0.45, w: 4.9, h: 0.45, fontSize: 14, color: C.accent5 }));
   }
@@ -749,9 +750,88 @@ function chartOpts(o) {
   });
 
   // ================================================================ 7 LEARNINGS
-  section("7 · Failures & learnings");
+  // ================================================================ 7 STRESS TEST
+  section("7 · Stress test");
   s = slide("SECTION");
   s.addText("07", { placeholder: "num" });
+  s.addText("Stress test: 8 very difficult tracks", { placeholder: "title" });
+  s.addText("Built to break model C: 133 m long, floor-coloured, rainbow stripes, hairpins, sharp corners, 18 cm wide", { placeholder: "sub" });
+
+  s = slide("CONTENT");
+  s.addText("The stress-test tracks", { placeholder: "title" });
+  s.addImage({ path: path.join(IMG, "stress_preview.png"), x: 0.6, y: 1.35, w: 12.1, h: 4.76, altText: "The 8 stress-test tracks" });
+  s.addText("None of these appear in training: lengths up to 133 m (training 4–9 m), a ramp nearly the floor's colour, 8-colour stripes, 0.3 m hairpins (training minimum 0.4 m), 90° near-sharp corners (training: smooth arcs only), 18 cm width (training 22–32 cm).", tb({ x: 0.6, y: 6.2, w: 12.1, h: 0.75, fontSize: 13, color: C.text1 }));
+  s.addNotes("Each track isolates one difficulty, so a failure points to a specific cause. The rainbow ramp is built from one mesh per 40 cm stripe; physics sees one continuous surface.");
+
+  const ST = D.stress;
+  const sres = (k, t) => { const r = ST[k] && ST[k].tracks[t]; return r ? `${r.finished}/${r.robots}` : "–"; };
+  const tnames = ["long_wiggle_60m", "serpentine_120m", "white_s", "rainbow_s", "hairpins_r03", "sharp_zigzag", "narrow_18cm_s", "narrow_chicane"];
+  const tlabel = { long_wiggle_60m: "Long wiggle 58 m", serpentine_120m: "Serpentine 133 m", white_s: "White S", rainbow_s: "Rainbow S", hairpins_r03: "Hairpins 0.3 m", sharp_zigzag: "Sharp zigzag", narrow_18cm_s: "Narrow 18 cm S", narrow_chicane: "Narrow chicane" };
+  s = slide("CONTENT");
+  s.addText("Stress-test results (robots finished out of 8)", { placeholder: "title" });
+  const sh = (t) => ({ text: t, options: { bold: true, color: HEX.lt1, fill: { color: HEX.dk2 }, align: "center" } });
+  const srows = [[sh("Track"), sh("C · 1×"), sh("C · 3×"), sh("B · 3×"), sh("A · 3× (LiDAR)")]];
+  for (const t of tnames) srows.push([tlabel[t], sres("C_1x", t), sres("C_3x", t), sres("B_3x", t), sres("A_3x", t)]);
+  const tot = (k) => (ST[k] ? Math.round(ST[k].success_rate * 100) + "%" : "–");
+  srows.push([{ text: "Overall", options: { bold: true } }, { text: tot("C_1x"), options: { bold: true } }, { text: tot("C_3x"), options: { bold: true } }, { text: tot("B_3x"), options: { bold: true } }, { text: tot("A_3x"), options: { bold: true } }]);
+  s.addTable(srows, { x: 0.6, y: 1.4, w: 7.4, colW: [2.6, 1.15, 1.15, 1.15, 1.35], fontSize: 14, fontFace: "Calibri", color: HEX.dk1, border: { type: "solid", color: "D5D9DE", pt: 0.75 }, rowH: 0.5, valign: "middle", align: "center" });
+  await card(s, { x: 8.3, y: 1.4, w: 4.5, h: 1.65, icon: "FaRulerHorizontal", color: HEX.accent2, head: "Length: no problem", body: "C drove 133 m and 58 m with zero falls at both speeds: ≈3 km without a fall." });
+  await card(s, { x: 8.3, y: 3.2, w: 4.5, h: 1.75, icon: "FaPalette", color: HEX.accent4, head: "Colour breaks the camera", body: "White and rainbow ramps: C 0–1/8. A cannot see colour and gets 8/8." });
+  await card(s, { x: 8.3, y: 5.1, w: 4.5, h: 1.65, icon: "FaDrawPolygon", color: HEX.accent1, head: "Corners hurt too", body: "Sharp zigzag: C 2–3/8, A 8/8. Geometry beats appearance here." });
+  s.addNotes("B finished 5/8 on rainbow with 0 falls: slow and hesitant (3 still driving at the time limit) but safe, consistent with B using its LiDAR more than C does.");
+
+  s = slide("CONTENT");
+  s.addText("Who handles what: success per stress track at 3×", { placeholder: "title" });
+  const pc = (k, t) => { const r = ST[k] && ST[k].tracks[t]; return r ? Math.round((100 * r.finished) / r.robots) : 0; };
+  s.addChart(pres.charts.BAR, ["C_3x", "B_3x", "A_3x"].map((k) => ({ name: { C_3x: "C (camera-heavy)", B_3x: "B (fusion RL)", A_3x: "A (LiDAR only)" }[k], labels: tnames.map((t) => tlabel[t]), values: tnames.map((t) => pc(k, t)) })),
+    chartOpts({ x: 0.6, y: 1.35, w: 12.2, h: 5.0, barDir: "col", barGrouping: "clustered", title: "Robots finished (%), 8 per track, 3× speed", chartColors: [MC.C, MC.B, MC.A], showValue: true, dataLabelPosition: "outEnd", dataLabelFontSize: 10, dataLabelColor: HEX.dk1, valAxisMinVal: 0, valAxisMaxVal: 115, showLegend: true, legendPos: "b", catAxisLabelFontSize: 11 }));
+  s.addText("The cheapest model (LiDAR only) is the most robust once appearance changes. C's earlier 100% depended on ramps looking like training ramps.", tb({ x: 0.6, y: 6.4, w: 12.2, h: 0.5, fontSize: 13, color: C.accent5 }));
+
+  await videoSlide({
+    title: "Model C on all 8 stress tracks (3×)", video: VF("stress_tour_C_3x.mp4"), cover: cov("stress_tour_C_3x"), wide: true,
+    statBig: tot("C_3x"), statSmall: "of 64 runs finished at 3× (8 robots per track)", statColor: MC.C,
+    points: ["Title card per track: map, why it is hard, evaluation result", "Then one full run with camera + LiDAR insets", "Watch the white and rainbow ramps: the camera loses the edges"],
+    notes: "Each clip is one deterministic run, so on tracks with mixed results (e.g. 3/8) the clip shows one possible outcome; the card shows the 8-robot evaluation.",
+  });
+  await multiVideo({
+    title: "Colour-blind wins: C vs A on the white and rainbow ramps",
+    vids: [
+      { video: VF("stress_white_C.mp4"), cover: cov("stress_white_C"), label: "C (camera + LiDAR) · white S · falls" },
+      { video: VF("stress_white_A.mp4"), cover: cov("stress_white_A"), label: "A (LiDAR only) · white S · 4.6 s" },
+      { video: VF("stress_rainbow_C.mp4"), cover: cov("stress_rainbow_C"), label: "C · rainbow S · falls" },
+      { video: VF("stress_rainbow_A.mp4"), cover: cov("stress_rainbow_A"), label: "A · rainbow S · 9.5 s" },
+    ],
+    notes: "Same tracks, same speed (3×). C relies on the camera's ramp-vs-floor contrast learned from its teacher-guided training; A only measures distances, so colour is irrelevant to it.",
+  });
+  await multiVideo({
+    title: "Sharp corners: C vs A on the zigzag",
+    vids: [
+      { video: VF("stress_zigzag_C.mp4"), cover: cov("stress_zigzag_C"), label: "C · sharp zigzag · 3× · falls" },
+      { video: VF("stress_zigzag_A.mp4"), cover: cov("stress_zigzag_A"), label: "A · sharp zigzag · 3× · 9.2 s" },
+    ],
+  });
+  await videoSlide({
+    title: "Side by side: C vs A on the three hardest-looking tracks", video: VF("stress_C_vs_A.mp4"), cover: cov("stress_C_vs_A"), wide: true,
+    points: ["White S: C falls, A 4.6 s", "Rainbow S: C falls, A 9.5 s", "Sharp zigzag: C falls, A 9.2 s", "Same tracks, same speed, one run each"],
+    notes: "A useful demo for 'why fusion is not automatically better': the extra sensor helps on familiar-looking tracks and hurts when its input changes in a way training never covered.",
+  });
+
+  s = slide("CONTENT");
+  s.addText("What the stress test teaches", { placeholder: "title" });
+  const stl = [
+    ["FaInfinity", "Reactive policies scale with length", "No memory of 'where am I' means metre 130 looks like metre 2. 133 m was as easy as 5 m.", HEX.accent2],
+    ["FaEye", "Cameras overfit to appearance", "C learned 'dark strip on a light floor'. Change the look and it fails, even though the shape is easy.", HEX.accent4],
+    ["FaSatelliteDish", "Geometry sensors generalize", "LiDAR ranges don't change with paint. A (98%) beat the 'best' model C (59%) on these tracks.", HEX.accent3],
+    ["FaWrench", "Fixes to try next", "Train with ramp/floor colour randomization incl. floor-coloured ramps and stripes; add sharp corners to the generator; raise camera dropout so fusion models lean on LiDAR.", HEX.accent1],
+  ];
+  for (let i = 0; i < stl.length; i++) {
+    const x = 0.6 + (i % 2) * 6.2, y = 1.45 + Math.floor(i / 2) * 2.7;
+    await card(s, { x, y, w: 5.95, h: 2.5, icon: stl[i][0], color: stl[i][3], head: stl[i][1], body: stl[i][2], size: 15 });
+  }
+
+  section("8 · Failures & learnings");
+  s = slide("SECTION");
+  s.addText("08", { placeholder: "num" });
   s.addText("What went wrong, and what we learned", { placeholder: "title" });
   s.addText("Bugs are part of the result: each one changed how the system is built", { placeholder: "sub" });
 
@@ -799,12 +879,13 @@ function chartOpts(o) {
     "One training run per model: no error bars across seeds",
     "8 robots per track from nearly the same start: small differences aren't meaningful",
     "'Fall' includes a wheel crossing a safety margin, strict on narrow ramps",
+    "Camera-heavy C fails on floor-coloured or striped ramps (stress test)",
     "Robots never learned to stop at the end of the ramp",
     "Simulation only; real-world transfer was explicitly out of scope",
   ], 17) });
   await card(s, { x: 6.8, y: 1.4, w: 6.0, h: 5.35, icon: "FaRocket", color: HEX.accent2, head: "Next steps", body: bullets([
     "Rotate track libraries during training (fresh shapes every N iterations)",
-    "Train narrower widths and tighter turns into the library",
+    "Train narrower widths, sharp corners and colour variety into the library",
     "Recurrent (LSTM) students to remember what the camera saw",
     "Several seeds per model for confidence intervals",
     "Teach a 'stop at the end' behaviour; optional sim-to-real later",
@@ -830,7 +911,7 @@ function chartOpts(o) {
   // closing
   s = slide("TITLE");
   s.addText("From one S to any track", { placeholder: "title" });
-  s.addText("A camera + LiDAR policy, taught by a privileged teacher and polished with RL, drove 8 never-seen tracks at ~1 m/s without falling.", { placeholder: "sub" });
+  s.addText("A camera + LiDAR policy, taught by a privileged teacher and polished with RL, drove 8 never-seen tracks at ~1 m/s without falling, and 133 m in one go. Its limit: ramps that look different (colour) or bend sharply, where the LiDAR-only model wins.", { placeholder: "sub" });
   s.addImage({ path: cov("unseen_tracks_first_drive_C"), x: 7.6, y: 2.25, w: 5.3, h: 2.98, altText: "Model C on an unseen track" });
 
   await pres.writeFile({ fileName: OUT });

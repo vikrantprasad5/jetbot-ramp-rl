@@ -74,6 +74,8 @@ for _id, _cfg, _agent in [
     ("Isaac-JetbotTracks-Eval", "TracksEnvCfg_EVAL", "TracksTeacherPPOCfg"),
     ("Isaac-JetbotTracks-Camera-Eval", "TracksCameraEnvCfg_EVAL", "TracksFusionPPOCfg"),
     ("Isaac-JetbotTracks-Train-Show", "TracksEnvCfg", "TracksTeacherPPOCfg"),
+    ("Isaac-JetbotTracks-Stress", "TracksEnvCfg_STRESS", "TracksTeacherPPOCfg"),
+    ("Isaac-JetbotTracks-Camera-Stress", "TracksCameraEnvCfg_STRESS", "TracksFusionPPOCfg"),
     ("Isaac-JetbotTracks-Camera-Train-Show", "TracksCameraEnvCfg", "TracksFusionPPOCfg"),
 ]:
     gym.register(

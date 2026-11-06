@@ -33,6 +33,9 @@ class TrackShape:
     width: float = 0.26
     color: tuple[float, float, float] = (0.42, 0.27, 0.14)
     name: str = ""
+    stripes: list | None = None
+    """Optional list of colours used in turn along the track (multi-colour ramps)."""
+    stripe_len: float = 0.4
 
 
 @dataclass
@@ -204,8 +207,8 @@ def build_library(spec: LibrarySpec) -> Library:
     rng = np.random.default_rng(spec.seed)
     shapes: list[TrackShape] = []
     for name in spec.named:
-        s = NAMED_TRACKS[name]
-        shapes.append(TrackShape(list(s.pieces), s.width, s.color, name))
+        s = NAMED_TRACKS[name] if name in NAMED_TRACKS else STRESS_TRACKS[name]
+        shapes.append(TrackShape(list(s.pieces), s.width, s.color, name, s.stripes, s.stripe_len))
     for i in range(spec.num_random):
         s = generate_random_track(rng, spec.generator, spec.point_spacing)
         s.name = f"rand_{spec.seed}_{i:02d}"
@@ -272,25 +275,31 @@ def library_usda_text(lib: Library) -> str:
     out = ["#usda 1.0", "(", '    defaultPrim = "Ramp"', "    metersPerUnit = 1", '    upAxis = "Z"', ")", "",
            'def Xform "Ramp"', "{"]
     for i, (track, shape) in enumerate(zip(lib.tracks, lib.shapes)):
-        pts, faces = _slab(track, shape.width, sp.top_z, sp.thickness)
-        lo, hi = pts.min(0), pts.max(0)
-        col = shape.color
-        out += [
-            f'    def Xform "Track{i:02d}"',
-            "    {",
-            '        def Mesh "slab" (',
-            '            prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]',
-            "        )",
-            "        {",
-            f"            float3[] extent = [{_f3(lo)}, {_f3(hi)}]",
-            f"            int[] faceVertexCounts = [{', '.join(['4'] * len(faces))}]",
-            f"            int[] faceVertexIndices = [{', '.join(str(k) for f in faces for k in f)}]",
-            f"            point3f[] points = [{', '.join(_f3(p) for p in pts)}]",
-            f"            color3f[] primvars:displayColor = [({col[0]:.3f}, {col[1]:.3f}, {col[2]:.3f})]",
-            '            uniform token subdivisionScheme = "none"',
-            '            uniform token physics:approximation = "none"',
-            "        }",
-        ]
+        out += [f'    def Xform "Track{i:02d}"', "    {"]
+        if shape.stripes:
+            step = max(2, int(round(shape.stripe_len / sp.point_spacing)))
+            chunks = [(a, min(a + step, len(track.s) - 1)) for a in range(0, len(track.s) - 1, step)]
+            parts = [(f"slab_{k:03d}", Track(track.points[a:b + 1], track.yaw[a:b + 1], track.s[a:b + 1]),
+                      shape.stripes[k % len(shape.stripes)]) for k, (a, b) in enumerate(chunks)]
+        else:
+            parts = [("slab", track, shape.color)]
+        for pname, sub, col in parts:
+            pts, faces = _slab(sub, shape.width, sp.top_z, sp.thickness, stride=2 if len(sub.s) > 4 else 1)
+            lo, hi = pts.min(0), pts.max(0)
+            out += [
+                f'        def Mesh "{pname}" (',
+                '            prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]',
+                "        )",
+                "        {",
+                f"            float3[] extent = [{_f3(lo)}, {_f3(hi)}]",
+                f"            int[] faceVertexCounts = [{', '.join(['4'] * len(faces))}]",
+                f"            int[] faceVertexIndices = [{', '.join(str(k) for f in faces for k in f)}]",
+                f"            point3f[] points = [{', '.join(_f3(p) for p in pts)}]",
+                f"            color3f[] primvars:displayColor = [({col[0]:.3f}, {col[1]:.3f}, {col[2]:.3f})]",
+                '            uniform token subdivisionScheme = "none"',
+                '            uniform token physics:approximation = "none"',
+                "        }",
+            ]
         h = sp.top_z - sp.thickness
         n_p = max(2, int(track.length // sp.pillar_spacing) + 1)
         for p_i, s in enumerate(np.linspace(0.05, track.length - 0.05, n_p)):
@@ -320,11 +329,12 @@ def library_hash(spec: LibrarySpec) -> str:
 def write_library_usd(lib: Library, directory: str | None = None) -> str:
     directory = directory or os.path.join(os.path.expanduser("~"), ".cache", "jetbot_ramp")
     os.makedirs(directory, exist_ok=True)
-    path = os.path.join(directory, f"library_{library_hash(lib.spec)}.usda")
+    text = library_usda_text(lib)
+    path = os.path.join(directory, f"library_{hashlib.sha1(text.encode()).hexdigest()[:12]}.usda")
     if not os.path.exists(path):
         tmp = f"{path}.tmp{os.getpid()}"
         with open(tmp, "w") as f:
-            f.write(library_usda_text(lib))
+            f.write(text)
         os.replace(tmp, path)
     return path
 
@@ -428,6 +438,61 @@ def rasterize_library(lib: Library, res: float = 0.01, pad: float = 1.0):
     return grid, (float(lo[0]), float(lo[1])), res
 
 
+# ---------------------------------------------------------------------------
+# Stress-test tracks (deliberately harder than anything in training)
+# ---------------------------------------------------------------------------
+
+
+def _serpentine(rows: int, row_len: float, turn_r: float) -> list[tuple[float, float]]:
+    pieces = []
+    for r in range(rows):
+        pieces.append((row_len, 0.0))
+        if r < rows - 1:
+            pieces.append(_arc(turn_r, 180, r % 2 == 0))
+    return pieces
+
+
+def _long_wiggle(seed: int = 7, rows: int = 7, turn_r: float = 0.6, width: float = 0.26) -> list[tuple[float, float]]:
+    """Serpentine whose rows are made of small alternating arcs (constant wiggling), ~60 m."""
+    rng = np.random.default_rng(seed)
+    for _ in range(200):
+        pieces = [(0.4, 0.0)]
+        for r in range(rows):
+            for k in range(3):  # 3 wiggle pairs per row; pair order alternates so the row comes back to centre
+                R = rng.uniform(1.0, 2.0)
+                th = rng.uniform(12, 26)
+                a, b = (_arc(R, th, True), _arc(R, th, False)) if k % 2 == 0 else (_arc(R, th, False), _arc(R, th, True))
+                pieces += [a, b, b, a]
+            pieces.append((rng.uniform(0.3, 1.0), 0.0))
+            if r < rows - 1:
+                pieces.append(_arc(turn_r, 180, r % 2 == 0))
+        pieces.append((0.4, 0.0))
+        t = sample_pieces(pieces, 0.01)
+        if self_clearance(t, width, stride=4) > 0.3:
+            return pieces
+    raise RuntimeError("long wiggle generation failed")
+
+
+RAINBOW = [(0.80, 0.08, 0.08), (0.90, 0.45, 0.04), (0.90, 0.82, 0.08), (0.08, 0.55, 0.12),
+           (0.06, 0.55, 0.65), (0.08, 0.18, 0.80), (0.45, 0.12, 0.65), (0.85, 0.85, 0.85)]
+_S = [(0.4, 0), _arc(0.6, 180, True), _arc(0.6, 180, False), (0.4, 0)]
+
+STRESS_TRACKS: dict[str, TrackShape] = {
+    "long_wiggle_60m": TrackShape(_long_wiggle(), 0.26, PALETTE[0]),
+    "serpentine_120m": TrackShape([(0.4, 0.0)] + _serpentine(17, 6.0, 0.6) + [(0.4, 0.0)], 0.26, PALETTE[2]),
+    "white_s": TrackShape(list(_S), 0.26, (0.80, 0.80, 0.78)),
+    "rainbow_s": TrackShape(list(_S), 0.26, PALETTE[0], stripes=RAINBOW, stripe_len=0.4),
+    "hairpins_r03": TrackShape([(0.4, 0)] + [_arc(0.3, 180, True), (0.3, 0), _arc(0.3, 180, False), (0.3, 0)] * 2
+                               + [(0.4, 0)], 0.26, PALETTE[4]),
+    "sharp_zigzag": TrackShape([(0.5, 0)] + [_arc(0.15, 90, True), (0.6, 0), _arc(0.15, 90, False), (0.6, 0)] * 4
+                               + [(0.4, 0)], 0.26, PALETTE[3]),
+    "narrow_18cm_s": TrackShape(list(_S), 0.18, PALETTE[5]),
+    "narrow_chicane": TrackShape([(0.4, 0), _arc(0.4, 120, True), _arc(0.4, 120, False), (0.3, 0), _arc(0.35, 150, True),
+                                  _arc(0.45, 90, False), (0.3, 0), _arc(0.4, 120, True), (0.4, 0)], 0.22, PALETTE[1]),
+}
+
+
 # train / test libraries
 TRAIN_LIBRARY = LibrarySpec(seed=1, num_random=12, named=[])
 TEST_LIBRARY = LibrarySpec(seed=1001, num_random=3, named=list(NAMED_TRACKS))
+STRESS_LIBRARY = LibrarySpec(seed=2001, num_random=0, named=list(STRESS_TRACKS), cell_gap=1.5)

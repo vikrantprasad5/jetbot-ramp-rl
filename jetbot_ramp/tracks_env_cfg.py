@@ -32,7 +32,7 @@ from isaaclab.visualizers import VisualizerCfg
 
 from .jetbot_cfg import JETBOT_CFG, JETBOT_WHEEL_JOINTS
 from .jetbot_ramp_env_cfg import JetbotRampEventCfg
-from .tracks import TEST_LIBRARY, TRAIN_LIBRARY, LibrarySpec, build_library
+from .tracks import STRESS_LIBRARY, TEST_LIBRARY, TRAIN_LIBRARY, LibrarySpec, build_library
 
 BASE_WHEEL_SPEED = 12.0  # [rad/s] = 0.36 m/s, the original cap ("1x")
 
@@ -216,3 +216,26 @@ class TracksCameraEnvCfg_EVAL(TracksCameraEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         _as_eval(self, camera=True)
+
+
+def _as_stress(cfg):
+    """Stress-test tracks (very long, odd colours, hairpins, sharp corners, very narrow)."""
+    _as_eval(cfg, camera=True)
+    cfg.library = STRESS_LIBRARY
+    cfg.scene.env_spacing = _spacing(STRESS_LIBRARY)
+    cfg.episode_length_s = 480.0
+    return cfg
+
+
+@configclass
+class TracksEnvCfg_STRESS(TracksEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        _as_stress(self)
+
+
+@configclass
+class TracksCameraEnvCfg_STRESS(TracksCameraEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        _as_stress(self)
