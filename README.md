@@ -60,6 +60,11 @@ docs/media/         README images and GIFs
 export/             phase-1 camera student exported to ONNX
 ```
 
+## License
+
+MIT, see [LICENSE](LICENSE). The Jetbot robot asset is loaded from NVIDIA's Isaac Sim asset library at run time and is
+not included here; Isaac Sim and Isaac Lab are under their own licenses.
+
 ---
 
 # Detailed notes
