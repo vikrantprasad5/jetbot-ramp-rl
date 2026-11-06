@@ -78,7 +78,7 @@ class TracksFusionPPOCfg(RslRlOnPolicyRunnerCfg):
 
     num_steps_per_env = 32
     max_iterations = 1500
-    save_interval = 20
+    save_interval = 5  # dense checkpoints for the generations video
     experiment_name = "tracks_B_fusion_ppo"
     obs_groups = {"actor": FUSION_GROUPS, "critic": ["critic"]}
     clip_actions = 1.0
@@ -107,6 +107,7 @@ class TracksFusionFinetuneCfg(TracksFusionPPOCfg):
     """C step 2: PPO fine-tune of the distilled student (--checkpoint from tools/distill_to_ppo.py)."""
 
     max_iterations = 500
+    save_interval = 5
     experiment_name = "tracks_C_finetune"
     actor = _fusion_actor(0.2)
     algorithm = _ppo(lr=1.0e-4, entropy=0.0, minibatches=8)

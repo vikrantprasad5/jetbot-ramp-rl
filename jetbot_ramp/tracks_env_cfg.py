@@ -182,6 +182,7 @@ class TracksEnvCfg(DirectRLEnvCfg):
 @configclass
 class TracksCameraEnvCfg(TracksEnvCfg):
     use_camera = True
+    promote_min_episodes = 800  # ~10x fewer robots than the state/LiDAR runs
     camera_dropout_prob = 0.1
     lidar_dropout_prob = 0.1
     num_rerenders_on_reset = 1

@@ -20,5 +20,12 @@ for k in list(actor):
         v = actor[k]
         actor[k] = torch.full_like(v, 0.2) if "log" not in k else torch.full_like(v, float(torch.log(torch.tensor(0.2))))
         print(f"reset {k}: {tuple(v.shape)}")
-torch.save({"actor_state_dict": actor, "critic_state_dict": t["critic_state_dict"], "iter": 0, "infos": None}, out)
+# PPO always restores its optimizer: give it a fresh Adam state (no moments) over the same number of parameters
+# (actor params then critic params; obs-normalizer entries are buffers, not parameters)
+n_params = sum(1 for k in list(actor) + list(t["critic_state_dict"]) if "obs_normalizer" not in k)
+dummy = [torch.nn.Parameter(torch.zeros(1)) for _ in range(n_params)]
+opt_state = torch.optim.Adam(dummy, lr=1.0e-4).state_dict()
+torch.save({"actor_state_dict": actor, "critic_state_dict": t["critic_state_dict"], "optimizer_state_dict": opt_state,
+            "iter": 0, "infos": None}, out)
+print(f"optimizer params: {n_params}")
 print(f"wrote {out}: actor keys {len(actor)}, critic keys {len(t['critic_state_dict'])}")
