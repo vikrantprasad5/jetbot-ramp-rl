@@ -11,10 +11,11 @@ const { applyTheme } = require(process.env.APPLY_THEME);
 
 const ROOT = path.resolve(__dirname, "..");
 const IMG = path.join(__dirname, "img");
-const V1 = (f) => path.join(ROOT, "videos", f);
-const VF = (f) => path.join(ROOT, "videos", "fusion", f);
+const LITE = !!process.env.LITE;
+const V1 = (f) => (LITE ? path.join(__dirname, "lite", f) : path.join(ROOT, "videos", f));
+const VF = (f) => (LITE ? path.join(__dirname, "lite", "fusion", f) : path.join(ROOT, "videos", "fusion", f));
 const D = JSON.parse(fs.readFileSync(path.join(__dirname, "data.json")));
-const OUT = path.join(ROOT, "Jetbot_Ramp_RL_Deck.pptx");
+const OUT = path.join(ROOT, process.env.LITE ? "Jetbot_Ramp_RL_Deck_lite.pptx" : "Jetbot_Ramp_RL_Deck.pptx");
 
 const THEME = {
   name: "Ramp Runner",
