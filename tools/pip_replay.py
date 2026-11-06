@@ -26,6 +26,7 @@ parser.add_argument("--seconds", type=float, default=15.0)
 parser.add_argument("--camera_off", action="store_true")
 parser.add_argument("--lidar_off", action="store_true")
 parser.add_argument("--caption", default="")
+parser.add_argument("--save_obs", default="", help="save every network input + action of the drive to this .npz")
 parser.add_argument("--out", required=True)
 parser.add_argument("--phase", choices=["all", "drive", "render"], default="all")
 parser.add_argument("--work", default="")
@@ -79,12 +80,19 @@ def drive(args):
         lw = viz.LidarPlotWriter(os.path.join(args.work, "lidar.mp4"))
         cam = None
         poses, joints = [], []
+        rec = {"camera": [], "lidar": [], "cliff": [], "proprio": [], "action": []}
         with torch.inference_mode():
             obs, _ = wenv.reset()
             u._cam_drop[:] = args.camera_off
             u._lidar_drop[:] = args.lidar_off
             for _ in range(int(args.seconds / u.step_dt)):
-                obs, _, _, _ = wenv.step(policy(obs))
+                act = policy(obs)
+                if args.save_obs:
+                    for k in ("camera", "lidar", "cliff", "proprio"):
+                        if k in obs.keys():
+                            rec[k].append(obs[k][0].cpu().numpy().astype(np.float32))
+                    rec["action"].append(act[0].cpu().numpy())
+                obs, _, _, _ = wenv.step(act)
                 p = u.robot.data.root_pose_w.torch.clone()
                 p[:, :3] -= u.scene.env_origins
                 poses.append(p.cpu().numpy())
@@ -108,6 +116,8 @@ def drive(args):
         st = int(u.status[0])
         res = "finished in " + format(float(u.finish_time[0]), ".1f") + " s" if st == 1 else ("fell" if st == 2 else "still driving")
         np.savez_compressed(os.path.join(args.work, "traj.npz"), poses=np.stack(poses), joints=np.stack(joints))
+        if args.save_obs:
+            np.savez_compressed(args.save_obs, **{k: np.stack(v) for k, v in rec.items() if v})
         json.dump({"result": res, "dt": u.step_dt}, open(os.path.join(args.work, "meta.json"), "w"))
         print(f"[pip] {res}", flush=True)
         env.close()

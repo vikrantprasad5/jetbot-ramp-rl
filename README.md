@@ -210,3 +210,13 @@ Videos: `videos/fusion/stress_tour_C_3x.mp4` (all 8 tracks, title cards + runs, 
 `deck/build_deck.js` builds `Jetbot_Ramp_RL_Deck.pptx` (60 slides, all 30 videos embedded, ~127 MB) and, with `LITE=1`,
 `Jetbot_Ramp_RL_Deck_lite.pptx` (480p videos, ~30 MB). Install once with `cd deck && npm install`, then
 `NODE_PATH=$PWD/node_modules APPLY_THEME=<pptx skill>/scripts/apply_theme.js node build_deck.js`.
+
+
+## Inside the network, and VLM / VLA explainer
+
+- `tools/pip_replay.py --save_obs` records every network input and action of a drive.
+- `tools/nn_activations.py` re-runs model C's network on that recording (outputs match the robot's actions to 1e-4) and
+  saves layer activations, weight x activation contributions and a steering saliency map.
+- `tools/nn_render.py` animates it next to the robot video -> `videos/fusion/nn_inside_model_C.mp4`.
+- `tools/vla_explainer.py` renders a 60 s explainer: our vision->action policy vs a VLM vs a VLA ->
+  `videos/fusion/vla_explainer.mp4` (VLM/VLA parts are conceptual; nothing of that kind was trained here).

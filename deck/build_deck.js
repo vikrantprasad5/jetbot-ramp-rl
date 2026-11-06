@@ -90,8 +90,9 @@ async function icon(name, hex) {
   return iconCache[k];
 }
 async function img64(file) {
-  const buf = await sharp(file).png().toBuffer();
-  return "data:image/png;base64," + buf.toString("base64");
+  // video posters are photos: JPEG keeps the deck much smaller than PNG
+  const buf = await sharp(file).jpeg({ quality: process.env.LITE ? 70 : 85 }).toBuffer();
+  return "data:image/jpeg;base64," + buf.toString("base64");
 }
 let sec = "";
 function section(t) { sec = t; pres.addSection({ title: t }); }
@@ -204,7 +205,7 @@ function chartOpts(o) {
     ["2048", "robots trained in parallel on one RTX 5070", HEX.accent2],
     ["6", "trained policies: 2 on the S ramp, 4 on random tracks", HEX.accent3],
     ["~3.5 h", "total GPU training time across all runs", HEX.accent5],
-    ["30", "videos recorded, all embedded in this deck", HEX.accent4],
+    ["32", "videos and animations, all embedded in this deck", HEX.accent4],
   ];
   for (let i = 0; i < nums.length; i++) {
     const x = 0.7 + (i % 3) * 4.1, y = 1.55 + Math.floor(i / 3) * 2.55;
@@ -226,13 +227,14 @@ function chartOpts(o) {
     ["FaTrophy", "6 · Results", "Never-seen tracks, sensor failures, race"],
     ["FaBomb", "7 · Stress test", "8 very hard tracks: 133 m long, white, rainbow, sharp corners"],
     ["FaWrench", "8 · Failures & learnings", "What broke, how it was fixed, what we learned"],
+    ["FaNetworkWired", "9 · Inside the network & VLA", "Neurons firing while driving; VLMs and VLAs explained"],
   ];
   for (let i = 0; i < ag.length; i++) {
-    const col = i < 4 ? 0 : 1, row = i < 4 ? i : i - 4;
-    const x = 0.7 + col * 6.2, y = 1.5 + row * 1.32;
-    await iconDot(s, ag[i][0], x, y + 0.05, 0.75, [HEX.accent1, HEX.accent6, HEX.accent2, HEX.accent3, HEX.accent2, HEX.accent1, HEX.accent4, HEX.accent5][i]);
-    s.addText(ag[i][1], tb({ x: x + 1.0, y, w: 4.9, h: 0.45, fontSize: 19, bold: true, color: C.text1 }));
-    s.addText(ag[i][2], tb({ x: x + 1.0, y: y + 0.45, w: 4.9, h: 0.45, fontSize: 14, color: C.accent5 }));
+    const col = i < 5 ? 0 : 1, row = i < 5 ? i : i - 5;
+    const x = 0.7 + col * 6.2, y = 1.4 + row * 1.08;
+    await iconDot(s, ag[i][0], x, y + 0.05, 0.7, [HEX.accent1, HEX.accent6, HEX.accent2, HEX.accent3, HEX.accent2, HEX.accent1, HEX.accent4, HEX.accent5, HEX.accent6][i]);
+    s.addText(ag[i][1], tb({ x: x + 0.95, y, w: 4.95, h: 0.42, fontSize: 18, bold: true, color: C.text1 }));
+    s.addText(ag[i][2], tb({ x: x + 0.95, y: y + 0.42, w: 4.95, h: 0.42, fontSize: 14, color: C.accent5 }));
   }
 
   // ================================================================ 1 SETUP
@@ -890,6 +892,70 @@ function chartOpts(o) {
     "Several seeds per model for confidence intervals",
     "Teach a 'stop at the end' behaviour; optional sim-to-real later",
   ], 17) });
+
+  // ================================================================ 9 INSIDE THE NETWORK + VLA
+  section("9 · Inside the network & VLA");
+  s = slide("SECTION");
+  s.addText("09", { placeholder: "num" });
+  s.addText("Inside the network & VLA models", { placeholder: "title" });
+  s.addText("What each layer of model C computes while it drives, and how vision-language(-action) models differ", { placeholder: "sub" });
+
+  s = slide("CONTENT");
+  s.addText("What one forward pass computes (30 times per second)", { placeholder: "title" });
+  formula(s, 0.6, 1.4, 6.5, 3.7, [
+    "# Vision: 3 convolution layers (filters slide over the image)",
+    "c₁ = ReLU(K₁ ∗ image + b₁)   (16 maps, 5×5)",
+    "c₂ = ReLU(K₂ ∗ c₁ + b₂)   →   c₃ = ReLU(K₃ ∗ c₂ + b₃)",
+    "# Merge vision (1536) with sensors (69, normalised)",
+    "z = [ (x − μ)/(σ + 0.01) ,  flatten(c₃) ]   (1605 numbers)",
+    "# Decide (MLP)",
+    "h₁ = ELU(W₁z + b₁),   h₂ = ELU(W₂h₁ + b₂)",
+    "a = W₃h₂ + b₃   (left, right wheel)",
+  ], 15);
+  formula(s, 0.6, 5.3, 6.5, 1.45, [
+    "# What the animation draws",
+    "edge j→i: W_ij · h_j  (how hard neuron j pushes neuron i)",
+    "saliency: |∂(a_R − a_L) / ∂pixel|",
+  ], 14);
+  const params = [["conv 1", 2416], ["conv 2", 4640], ["conv 3", 9248], ["MLP layer 1", 411136], ["MLP layer 2", 32896], ["output", 258]];
+  s.addChart(pres.charts.BAR, [{ name: "weights", labels: params.map((p) => p[0]), values: params.map((p) => p[1]) }],
+    chartOpts({ x: 7.4, y: 1.4, w: 5.4, h: 3.9, barDir: "bar", title: "Learned weights per layer (460,596 total)", chartColors: [HEX.accent6], showValue: true, dataLabelPosition: "outEnd", dataLabelFontSize: 10, dataLabelColor: HEX.dk1, showLegend: false, valAxisHidden: true, valGridLine: { style: "none" }, catAxisOrientation: "maxMin" }));
+  s.addText("89% of the weights sit in the first MLP layer, which mixes all 1536 vision features with the 69 sensor numbers. The convolution filters are tiny but run on every image position.", tb({ x: 7.4, y: 5.4, w: 5.4, h: 1.35, fontSize: 14, color: C.text1 }));
+  s.addNotes("ReLU keeps positives and zeros negatives; ELU is similar but smooth and allows small negative values. The output a is the mean of a Gaussian; at test time the robot uses the mean directly (no sampling).");
+
+  await videoSlide({
+    title: "Inside model C while it drives", video: VF("nn_inside_model_C.mp4"), cover: cov("nn_inside_model_C"), wide: true,
+    points: ["Real inputs from a drive on the held-out triple S at 2×", "Re-run through the trained network: outputs match the robot's actions to 0.0001", "Nodes: brightness = activation (orange +, blue −)", "Edges: weight × activation, the strongest drawn", "Saliency: which pixels change the steering"],
+    notes: "Only a readable subset is drawn: 24 of 256 and 16 of 128 neurons (the ones that vary most during the drive), 1536 vision features grouped into 12 nodes and 61 LiDAR beams into 8 sectors. Watch the right-hand side flip between 'turning LEFT' and 'turning RIGHT' as the S alternates.",
+  });
+
+  await videoSlide({
+    title: "Explainer: our policy vs VLM vs VLA", video: VF("vla_explainer.mp4"), cover: cov("vla_explainer"), wide: true,
+    points: ["1 · our vision → action network", "2 · VLM: image patches + words → transformer → words", "3 · VLA: image + instruction → action tokens → wheels", "4 · side-by-side comparison"],
+    notes: "One-minute animation. The VLM/VLA parts are conceptual (we did not train one); token values shown are illustrative.",
+  });
+
+  s = slide("CONTENT");
+  s.addText("VLM and VLA in one picture", { placeholder: "title" });
+  s.addImage({ path: path.join(IMG, "vlm_still.jpg"), x: 0.6, y: 1.4, w: 6.6, h: 3.71, altText: "VLM token diagram from the explainer" });
+  await card(s, { x: 7.5, y: 1.4, w: 5.3, h: 1.75, icon: "FaComments", color: HEX.accent2, head: "VLM: vision-language model", body: "Image split into patches → tokens; joined with the text tokens; a transformer predicts the answer one token at a time." });
+  await card(s, { x: 7.5, y: 3.3, w: 5.3, h: 1.85, icon: "FaRobot", color: HEX.accent4, head: "VLA: vision-language-action", body: "Same backbone, but it answers with actions: action tokens decoded to motor commands (RT-2, OpenVLA) or an action head that outputs short action chunks (π0)." });
+  await card(s, { x: 0.6, y: 5.3, w: 12.2, h: 1.45, icon: "FaLightbulb", color: HEX.accent1, head: "Where our model fits", body: "Ours is a vision(+LiDAR)-action model without language: tiny, fast, one skill. A VLA could take 'drive to the end of the ramp, slowly' but needs billions of weights and far more data." });
+
+  s = slide("CONTENT");
+  s.addText("Our policy vs VLM vs VLA", { placeholder: "title" });
+  const vh = (t, col) => ({ text: t, options: { bold: true, color: HEX.lt1, fill: { color: col }, align: "center" } });
+  s.addTable([
+    [vh("", HEX.dk2), vh("Our policy (model C)", HEX.accent6), vh("VLM", HEX.accent2), vh("VLA", HEX.accent4)],
+    ["Input", "camera + LiDAR", "image + text", "image + text instruction"],
+    ["Output", "2 wheel speeds", "text", "robot actions"],
+    ["Size", "≈ 0.46 M weights", "≈ 1–80 B weights", "≈ 1–55 B (OpenVLA 7 B)"],
+    ["Trained on", "≈ 1 h in our simulator (RL + teacher)", "web-scale images + text", "a VLM + many robot demonstrations"],
+    ["Speed", "30 Hz on one consumer GPU", "tokens per second", "≈ 5–50 Hz on large GPUs"],
+    ["Strength", "fast, cheap, robust LiDAR fallback", "describes, answers, reasons", "many tasks from plain-language commands"],
+    ["Weakness", "one skill; no instructions", "cannot act", "slow, data-hungry, big compute"],
+  ], { x: 0.6, y: 1.4, w: 12.2, colW: [1.8, 3.4, 3.2, 3.8], fontSize: 14, fontFace: "Calibri", color: HEX.dk1, border: { type: "solid", color: "D5D9DE", pt: 0.75 }, rowH: 0.6, valign: "middle" });
+  s.addText("Examples: RT-2 (Google DeepMind, 2023), OpenVLA (2024), π0 (Physical Intelligence, 2024). Sizes and speeds are approximate and vary by model and hardware.", tb({ x: 0.6, y: 6.4, w: 12.2, h: 0.5, fontSize: 12, color: C.accent5 }));
 
   // appendix
   section("Appendix");
